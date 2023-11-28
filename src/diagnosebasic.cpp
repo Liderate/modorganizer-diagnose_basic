@@ -123,6 +123,7 @@ QList<PluginSetting> DiagnoseBasic::settings() const
       << PluginSetting("check_fileattributes", tr("Warn when files have unwanted attributes"), false)
       << PluginSetting("ow_ignore_empty", tr("Ignore empty directories when checking overwrite directory"), false)
       << PluginSetting("ow_ignore_log", tr("Ignore .log files and empty directories when checking overwrite directory"), false)
+      << PluginSetting("check_pluginlimit", tr("Warn when the plugin limit is exceeded"), true)
      ;
 }
 
@@ -572,6 +573,42 @@ bool DiagnoseBasic::fileAttributes(const QString &executable) const
   return true;
 }
 
+bool DiagnoseBasic::pluginLimit() const {
+  int activeMasterCount = 0;
+  int activeLightMasterCount = 0;
+  int activeRegularCount = 0;
+
+  IPluginList* list = m_MOInfo->pluginList();
+  
+  for (QString pluginName : list->pluginNames()) {
+    int active = list->state(pluginName);
+    if (active != 2) {
+      continue;
+    }
+
+    if (list->hasLightExtension(pluginName) || list->isLightFlagged(pluginName)){
+      activeLightMasterCount++;
+    }
+    else if (list->hasMasterExtension(pluginName) || list->isMasterFlagged(pluginName)) {
+      activeMasterCount++;
+    }
+    else if (list->isOverlayFlagged(pluginName));
+    else {
+      activeRegularCount++;
+    }
+  }
+
+  // The Bethesda games load master and regular plugins in the range of 0-255. Slot 0 is the main ESM for the game. Slot 255 is reserved for temporary forms.
+  // Slot 254 will be reserved for light plugins if the game supports them (Skyrim SE, Fallout 4, and Starfield).
+  int espEsmCount = activeMasterCount + activeRegularCount;
+  if (m_MOInfo->managedGame()->gameShortName() == "SkyrimSE" || m_MOInfo->managedGame()->gameShortName() == "Fallout4" || m_MOInfo->managedGame()->gameShortName() == "Starfield") {
+    return (espEsmCount > 254 || activeLightMasterCount > 4096);
+  }
+  else {
+    return (espEsmCount > 255);
+  }
+}
+
 std::vector<unsigned int> DiagnoseBasic::activeProblems() const
 {
   std::vector<unsigned int> result;
@@ -597,6 +634,9 @@ std::vector<unsigned int> DiagnoseBasic::activeProblems() const
   if (QFile::exists(m_MOInfo->profilePath() + "/profile_tweaks.ini")) {
     result.push_back(PROBLEM_PROFILETWEAKS);
   }
+  if (m_MOInfo->pluginSetting(name(), "check_pluginlimit").toBool() && pluginLimit()) {
+    result.push_back(PROBLEM_PLUGINLIMIT);
+  }
 
   return result;
 }
@@ -618,6 +658,8 @@ QString DiagnoseBasic::shortDescription(unsigned int key) const
       return tr("Missing Masters");
     case PROBLEM_ALTERNATE:
       return tr("At least one unverified mod is using an alternative game source");
+    case PROBLEM_PLUGINLIMIT:
+      return tr("Plugin limit exceeded");
     default:
       throw MyException(tr("invalid problem key %1").arg(key));
   }
@@ -676,6 +718,10 @@ QString DiagnoseBasic::fullDescription(unsigned int key) const
                 "Advice: Once you have verified the mod is working correctly, you can use the context menu<br>"
                 "and select \"Mark as converted/working\" to remove the flag and warning.");
     } break;
+    case PROBLEM_PLUGINLIMIT: {
+      return tr("You have exceeded the maximum number of plugins supported by this game. This may cause crashes, save corruption, or other issues. Please deactivate some plugins before continuing. You can see a breakdown of your plugin count by hovering the cursor over the number to the right of \"Active:\" in the Plugins tab.<br><br>"
+                "The range for master (ESM) and standard (ESP) plugins combined is 0-255, with slots 0 and 255 being reserved. Slot 254 is also reserved if the game supports Light plugins (ESL). Light plugins have their own limit of 4096.");
+    }
     default:
       throw MyException(tr("invalid problem key %1").arg(key));
   }
