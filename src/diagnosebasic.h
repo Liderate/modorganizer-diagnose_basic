@@ -28,7 +28,10 @@ along with this plugin.  If not, see <http://www.gnu.org/licenses/>.
 #include <QString>
 #include <QSet>
 #include <QRegularExpression>
+#include <QByteArray>
+#include <QDateTime>
 
+#include <unordered_set>
 
 class DiagnoseBasic : public QObject, public MOBase::IPlugin, public MOBase::IPluginDiagnose
 {
@@ -70,6 +73,7 @@ private:
   bool missingMasters() const;
   bool alternateGame() const;
   bool fileAttributes(const QString &executable) const;
+  bool exe4GBPatched() const;
 
 private:
 
@@ -80,10 +84,13 @@ private:
   static const unsigned int PROBLEM_PROFILETWEAKS = 7;
   static const unsigned int PROBLEM_MISSINGMASTERS = 8;
   static const unsigned int PROBLEM_ALTERNATE = 9;
+  static const unsigned int PROBLEM_UNPATCHEDEXE = 10;
 
   static const unsigned int NUM_CONTEXT_ROWS = 5;
 
   static const QRegularExpression RE_LOG_FILE;
+
+  static const std::unordered_set<QByteArray> PATCHED_HASHES;
 
 private:
 
@@ -138,6 +145,7 @@ private:
   mutable QString m_NewestModlistBackup;
   mutable std::set<QString> m_MissingMasters;
   mutable std::map<QString, std::set<QString>> m_PluginChildren;
+  mutable QDateTime m_EXEModifiedTime;
 
 };
 

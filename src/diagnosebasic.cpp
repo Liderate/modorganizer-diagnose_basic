@@ -38,6 +38,8 @@
 #include <QProgressDialog>
 #include <QLabel>
 #include <QPushButton>
+#include <QCryptographicHash>
+#include <QDesktopServices>
 
 #include <regex>
 #include <functional>
@@ -56,10 +58,13 @@
 using namespace MOBase;
 
 const QRegularExpression DiagnoseBasic::RE_LOG_FILE(".*[.]log[0-9]*$");
+// TODO: needs hash for gog. Do different versions of patcher give different hashes?
+const std::unordered_set<QByteArray> DiagnoseBasic::PATCHED_HASHES = { "50c70408a000acade2ed257c87cecbc2",  "5d60fe3a865663c6caf97f45857ddca6", ""}; // steam, epic, gog
 
 DiagnoseBasic::DiagnoseBasic()
   : m_MOInfo(nullptr)
 {
+  m_EXEModifiedTime = QDateTime();
 }
 
 bool DiagnoseBasic::init(IOrganizer *moInfo)
@@ -123,6 +128,7 @@ QList<PluginSetting> DiagnoseBasic::settings() const
       << PluginSetting("check_fileattributes", tr("Warn when files have unwanted attributes"), false)
       << PluginSetting("ow_ignore_empty", tr("Ignore empty directories when checking overwrite directory"), false)
       << PluginSetting("ow_ignore_log", tr("Ignore .log files and empty directories when checking overwrite directory"), false)
+      << PluginSetting("check_exepatched", tr("Warn when FalloutNV.exe is not 4GB patched"), true)
      ;
 }
 
@@ -572,6 +578,37 @@ bool DiagnoseBasic::fileAttributes(const QString &executable) const
   return true;
 }
 
+bool DiagnoseBasic::exe4GBPatched() const
+{
+  if ((m_MOInfo->managedGame()->gameShortName() != "FalloutNV") && (m_MOInfo->managedGame()->gameShortName() != "TTW")) {
+    return false;
+  }
+
+  const QDir& dir(m_MOInfo->managedGame()->gameDirectory());
+  const QString& binaryPath(dir.absoluteFilePath(m_MOInfo->managedGame()->binaryName()));
+
+  QFile file(binaryPath);
+  if (file.fileTime(QFile::FileModificationTime) == m_EXEModifiedTime)
+  {
+    return false;
+  }
+
+  if (!file.open(QFile::ReadOnly))
+  {
+    return false;
+  }
+
+  const QByteArray& hash = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Md5).toHex();
+  if (PATCHED_HASHES.contains(hash)) {
+    m_EXEModifiedTime = file.fileTime(QFile::FileModificationTime);
+    file.close();
+    return false;
+  }
+
+  file.close();
+  return true;
+}
+
 std::vector<unsigned int> DiagnoseBasic::activeProblems() const
 {
   std::vector<unsigned int> result;
@@ -593,6 +630,9 @@ std::vector<unsigned int> DiagnoseBasic::activeProblems() const
   }
   if (m_MOInfo->pluginSetting(name(), "check_alternategames").toBool() && alternateGame()) {
     result.push_back(PROBLEM_ALTERNATE);
+  }
+  if (m_MOInfo->pluginSetting(name(), "check_exepatched").toBool() && exe4GBPatched()) {
+    result.push_back(PROBLEM_UNPATCHEDEXE);
   }
   if (QFile::exists(m_MOInfo->profilePath() + "/profile_tweaks.ini")) {
     result.push_back(PROBLEM_PROFILETWEAKS);
@@ -618,6 +658,8 @@ QString DiagnoseBasic::shortDescription(unsigned int key) const
       return tr("Missing Masters");
     case PROBLEM_ALTERNATE:
       return tr("At least one unverified mod is using an alternative game source");
+    case PROBLEM_UNPATCHEDEXE:
+      return tr("Game is not 4GB Patched"); // TODO: message
     default:
       throw MyException(tr("invalid problem key %1").arg(key));
   }
@@ -676,6 +718,10 @@ QString DiagnoseBasic::fullDescription(unsigned int key) const
                 "Advice: Once you have verified the mod is working correctly, you can use the context menu<br>"
                 "and select \"Mark as converted/working\" to remove the flag and warning.");
     } break;
+    case PROBLEM_UNPATCHEDEXE: {
+      // TODO: better message
+      return tr("Game is not 4GB Patched");
+    } break;
     default:
       throw MyException(tr("invalid problem key %1").arg(key));
   }
@@ -683,7 +729,7 @@ QString DiagnoseBasic::fullDescription(unsigned int key) const
 
 bool DiagnoseBasic::hasGuidedFix(unsigned int key) const
 {
-  return (key == PROBLEM_PROFILETWEAKS);
+  return (key == PROBLEM_PROFILETWEAKS || key == PROBLEM_UNPATCHEDEXE);
 }
 
 void DiagnoseBasic::startGuidedFix(unsigned int key) const
@@ -691,6 +737,9 @@ void DiagnoseBasic::startGuidedFix(unsigned int key) const
   switch (key) {
     case PROBLEM_PROFILETWEAKS: {
       shellDeleteQuiet(m_MOInfo->profilePath() + "/profile_tweaks.ini");
+    } break;
+    case PROBLEM_UNPATCHEDEXE: {
+      QDesktopServices::openUrl(QUrl("https://www.nexusmods.com/newvegas/mods/62552?tab=files"));
     } break;
     default:
       throw MyException(tr("invalid problem key %1").arg(key));
