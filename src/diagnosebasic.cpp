@@ -290,7 +290,7 @@ bool DiagnoseBasic::alternateGame() const
 
 bool DiagnoseBasic::invalidFontConfig() const
 {
-  if ((m_MOInfo->managedGame()->gameName() != "Skyrim") && (m_MOInfo->managedGame()->gameName() != "SkyrimSE"))  {
+  if ((m_MOInfo->managedGame()->gameName() != "Skyrim") && (m_MOInfo->managedGame()->gameShortName() != "SkyrimSE"))  {
     // this check is only for skyrim
     return false;
   }
